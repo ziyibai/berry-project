@@ -1,0 +1,249 @@
+---
+title: "Strawberry Project"
+author: "ZIYI BAI"
+date: "2020/10/11"
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+    keep_tex: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,out.width="0.9\\linewidth",dev="pdf",fig.align  = 'center')
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load("tidyverse","srvyr","ggplot")
+```
+
+## 1 Data Cleaning
+### 1.1 Basic Adjustment of Dataset
+
+Berries' price various from different states and living conditions, so what cause the changes of the value of berry is an interesting thing. By downloading the data from the National Agriculture Statistics Service (NASS) of United States Department of Agriculture(USDA), we have the dataset containing the information about three types of berries: Blueberries, Strawberries and Raspberries. 
+
+First of all, we import the dataset and since there are only 8 out 21 columns that are useful for further analysis, we will drop those first for simplicity of the dataset.
+
+```{r}
+setwd("/Users/baiziyi/Desktop/MSSP/MA615/berry")
+dt <- read.csv("berries.csv",header=T)
+berry <- dt %>%
+  select(Year,Period,State,Commodity,Data.Item,Domain,Domain.Category,Value)
+head(berry)
+```
+
+### 1.2 The Initial Screening of the Data
+
+To begin with, by looking at the column of `Value`, there are many (D),(NA),(X) and (Z) info appear, which we will not need them when we do EDA. So, one way to eliminate them is to replace those into NA and drop all the NA lines we have.
+
+```{r}
+berry$Value <- as.numeric(berry$Value)
+# Replace (D),(NA),(X) and (Z) with NA
+berry[berry =="(D)"] <- NA
+berry[berry =="(NA)"] <- NA
+berry[berry =="(X)"] <- NA
+berry[berry =="(Z)"] <- NA
+berry <- berry %>% drop_na()
+```
+
+
+### 1.3 Select Strawberry Data and Do Further Data Cleaning
+
+We can use the `filter` function to extract data of strawberries to conduct further study. In the following coding, I use 'sberry' to indicate strawberry. 
+
+```{r}
+sberry <- berry %>% filter(Commodity=="STRAWBERRIES")
+# Summary of the dataset
+summary(sberry)
+```
+
+From the output data above, we notice that the Data.Item and Domain.Category column has mixed information, so that we need to split them for further analysis. 
+
+#### 1.3.1 Cleaning `Data.Item` Column
+
+Data.Item column contains mosts of information I'm going to use in my project. It shows me 13 different ways that used to measure strawberry's value and each measurment contains how many data.
+
+```{r}
+# Select `Data.Item` Column
+item_pre <- sberry$Data.Item
+# Replace "-" with "," for the convenience of split this column
+item <- gsub(" - ",",",item_pre)
+view(item)
+```
+
+#### In this chunk, I summarize strawberry date by grouping each way of measurment and calculating overall value measured in each way. 
+
+```{r}
+# This part is guided by Meng,Chenghao: he used regular expression to extract measurement methods. 
+sberry$unit <- str_extract_all(item,"MEASURED IN.*[^, /AVG]|ACRES.*")
+sberry$unit <- as.character(sberry$unit)
+sberry$unit <- str_replace(sberry$unit,",","")
+sberry$unit <- trimws(sberry$unit)
+write.csv(sberry_unit, file = "sberry_unit.csv")
+
+sberry_sum <- sberry %>%
+  group_by(unit)%>%
+  summarize(
+    count=n(),
+    value=sum(Value)
+    )
+view(sberry_sum)
+```
+
+#### Then I select the bearing type from `Data.Item`
+
+```{r}
+# This chunk is guided by Wang,Yuxi.
+type_sberry <- str_extract_all(item,"(BEARING){1}")
+```
+
+
+## 2 EDA
+
+In the EDA part, I make data frame about the price of strawberries under different measurement methods in each state each year. Then I mainly use box plot and line chart to make these information more clear. 
+
+### 2.1 First Impression of Strawberry Date
+
+In my opinion, box plot is one of the best way as the beginning of EDA. In my box plot 1, we may see the scatter of the total value of each measurement. However, this graph is not enough for full explanation for our dataset, so we need to do further expression.
+
+```{r}
+bp1 <- ggplot(data = sberry_sum, aes(x=unit, y=value, color= unit)) + 
+  geom_boxplot()+
+  scale_color_brewer(palette="Dark2")+
+  labs(title = 'Overall Value of each State',
+       y='Value of Strawberry',x='Unit')
+bp1
+```
+### 2.2 Further Expression
+
+To begin with, I make a new data frame that contains information about State, Year, count, Value of strawberry called sberry_unit.
+
+```{r}
+sberry_unit <- sberry %>%
+  group_by(unit)%>%
+  summarize(
+    state=State,
+    year= Year,
+    count=n(),
+    value=Value
+    )
+view(sberry_unit)
+```
+
+#### 2.1.1 MEASURED IN LB / ACRE / APPLICATION 
+
+I want to dip further of strawberries' value collected from MEASURED IN LB / ACRE / APPLICATION. For one reason is that when we go shopping in the supermarket, we usually pay for strawberry depends on how much it is per LB. For another reason is that this type of measurement contains 224 data, which may be more reliable to analyze. 
+
+```{r}
+# MEASURED IN LB / ACRE / APPLICATION 
+sberry_unit_LAA <- filter(sberry_unit,unit=="MEASURED IN LB / ACRE / APPLICATION" )
+sberry_unit_LAA$value <- as.numeric(sberry_unit_LAA$value)
+# Replace 0 with NA for further analysis, this part's code is guided by Wang,Yuxi.
+sberry_unit_LAA$value[sberry_unit_LAA$value ==0] <- NA
+sberry_unit_LAA_new <- group_by(sberry_unit_LAA,year,state)
+view(sberry_unit_LAA_new)
+sberry_LAA <- summarize(sberry_unit_LAA_new, value = mean(value, na.rm = TRUE))
+pp <- ggplot(sberry_LAA, aes(x = year, y = value))+
+  geom_point(aes(color=state))
+pp
+
+bp2 <- ggplot(data = sberry_unit_LAA_new, aes(x=state, y=value, color= state)) + 
+  geom_boxplot()+
+  scale_color_brewer(palette="Dark2")+
+  labs(title = 'Value of each State',
+       y='Value of Strawberry',x='state')
+bp2
+```
+
+We can see that in the box plot 2 graph, strawberry price in California is influenced by outliers. So, we have to eliminate those outliers to produce a reader friendly box plot.
+
+```{r}
+# Eliminate outliers
+bp3 <- ggplot(sberry_unit_LAA_new, aes(x = state, y = value))+ 
+  geom_boxplot(outlier.colour = NA,notch = TRUE) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 13, face = "bold")) +
+  coord_cartesian(ylim = c(0, 3)) 
+bp3
+```
+
+Also, we are able to see the changing trend of total strawberry value using line chart.
+
+```{r}
+sberry_unit_LAA_new1 <- sberry_unit_LAA_new %<>% group_by(state,year) %>% summarise(Number_Total1=sum(value))
+view(sberry_unit_LAA_new1)
+ggplot(data=sberry_unit_LAA_new)+ geom_line(mapping=aes(x=year,y=Number_Total1,color=state))+ geom_point(mapping=aes(x=year,y=Number_Total1,color=state))+ scale_color_manual(values = c("navy blue","sky blue","light green"))+
+xlab("Year") + ylab("Numbers in Total") + ggtitle("Measurement: Measured in LB / ACRE / APPLICATION")
+```
+
+We miss the strawberries' value in 2017, but we can indicate that value of strawberry increased dramatically from 2018 to 2019 in California. This may be caused by some dramatic climate change or unexpected social experiences in California.
+
+#### 2.1.2 MEASURED IN MEASURED IN PCT OF AREA BEARIN
+
+Then, I choose strawberry value measured in PCT of area bearin to analyze, since this kind of measurement has the biggest dataset.
+
+```{r}
+# MEASURED IN MEASURED IN PCT OF AREA BEARIN 
+sberry_unit_PAB <- filter(sberry_unit,unit=="MEASURED IN PCT OF AREA BEARIN" )
+sberry_unit_PAB$value <- as.numeric(sberry_unit_PAB$value)
+# Replace 0 with NA for further analysis 
+sberry_unit_PAB$value[sberry_unit_PAB$value ==0] <- NA
+sberry_unit_PAB_new <- group_by(sberry_unit_PAB,year,state)
+```
+
+This time, I only used box plot without outliers and line chart for analysis.
+
+```{r}
+# Box plot
+bp4 <- ggplot(sberry_unit_PAB_new, aes(x = state, y = value))+ 
+  geom_boxplot(outlier.colour = NA,notch = TRUE) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 13, face = "bold")) +
+  coord_cartesian(ylim = c(0, 200)) 
+bp4
+
+# Line chart
+sberry_unit_PAB_new1 <- sberry_unit_PAB_new %<>% group_by(state,year) %>% summarise(Number_Total2=sum(value))
+
+ggplot(data=sberry_unit_PAB_new1)+ geom_line(mapping=aes(x=year,y=Number_Total2,color=state))+ geom_point(mapping=aes(x=year,y=Number_Total2,color=state))+ scale_color_manual(values = c("navy blue","sky blue","light green","pink"))+
+xlab("Year") + ylab("Numbers in Total") + ggtitle("Measurement: Measured in PCT OF AREA BEARIN")
+```
+
+#### 2.1.3 MEASURED IN MEASURED IN LB / ACRE / YEAR
+
+Finally, I choose strawberry value measured in Lb/acre/year for analysis. This kind of measurement is also one way that I think needed to be display in graphs.
+
+```{r}
+# MEASURED IN MEASURED IN LB / ACRE / YEAR 
+sberry_unit_LAY <- filter(sberry_unit,unit=="MEASURED IN LB / ACRE / YEAR" )
+sberry_unit_LAY$value <- as.numeric(sberry_unit_LAY$value)
+# Replace 0 with NA for further analysis 
+sberry_unit_LAY$value[sberry_unit_LAY$value ==0] <- NA
+sberry_unit_LAY_new <- group_by(sberry_unit_LAY,year,state)
+```
+
+```{r}
+# Box plot
+bp5 <- ggplot(sberry_unit_LAY_new, aes(x = state, y = value))+ 
+  geom_boxplot(outlier.colour = NA,notch = TRUE) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 13, face = "bold")) +
+  coord_cartesian(ylim = c(0, 20)) 
+bp5
+
+# Line chart
+sberry_unit_LAY_new1 <- sberry_unit_LAY_new %<>% group_by(state,year) %>% summarise(Number_Total3=sum(value))
+
+ggplot(data=sberry_unit_LAY_new1)+ geom_line(mapping=aes(x=year,y=Number_Total3,color=state))+ geom_point(mapping=aes(x=year,y=Number_Total3,color=state))+ scale_color_manual(values = c("navy blue","sky blue","orange"))+
+xlab("Year") + ylab("Numbers in Total") + ggtitle("Measurement: Measured in LB / ACRE / YEAR")
+```
+
+    
+## 3 Conclusion
+
+Based on the graphs I conducted in the last part, we may notice that strawberries from California always have the highest value depends on all three measurement I analyzed. However, I didn't make graphs of all kinds of measurement and the data of strawberries' value missed a lot, so my conclusion may not sufficient and there is a possibility that value measured in other way tells us a different story.  
+
+## Reference
+
+[1]Hadley Wickham, Romain François, Lionel Henry, Kirill Müller.(2020) dplyr: A Grammar of Data Manipulation, version 1.0.2
+[2]Hadley Wickham.(2019) tidyverse: Easily Install and Load the ‘Tidyverse’, version 1.3.0 [3]Alboukadel Kassambara.(2020) ggpubr: ‘ggplot2’ Based Publication Ready Plots, version 0.4.0
